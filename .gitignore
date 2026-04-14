@@ -19,3 +19,4 @@ tests/__pycache__
 tests/testfiles/*.appimage
 tests/testfiles/*.AppImage
 tests/testfiles.tar.gz
+installroot
