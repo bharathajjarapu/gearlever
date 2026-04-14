@@ -1,0 +1,88 @@
+name: Package DEB and RPM
+
+on:
+  workflow_dispatch:
+
+jobs:
+  build-deb:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install build dependencies
+        run: |
+          sudo apt-get update -y
+          sudo apt-get install -y meson ninja-build python3 python3-gi \
+            gir1.2-gtk-4.0 gir1.2-adw-1 gettext libglib2.0-dev-bin \
+            desktop-file-utils appstream dpkg-dev
+
+      - name: Get version
+        id: version
+        run: |
+          VERSION=$(grep "^\s*version:" meson.build | grep -oE "'[^']+'" | tr -d "'")
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+
+      - name: Build with meson
+        run: |
+          meson setup builddir --prefix=/usr
+          DESTDIR="$PWD/installroot" ninja -C builddir install
+
+      - name: Assemble DEB package
+        run: |
+          VERSION=${{ steps.version.outputs.version }}
+          PKGDIR="gearlever_${VERSION}_amd64"
+          mkdir -p "${PKGDIR}/DEBIAN"
+          sed "s/VERSION_PLACEHOLDER/${VERSION}/" packaging/deb/control > "${PKGDIR}/DEBIAN/control"
+          cp -a installroot/. "${PKGDIR}/"
+          dpkg-deb --build --root-owner-group "${PKGDIR}" "gearlever_${VERSION}_amd64.deb"
+
+      - name: Upload DEB artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: gearlever-deb
+          path: "*.deb"
+
+  build-rpm:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install build dependencies
+        run: |
+          sudo apt-get update -y
+          sudo apt-get install -y meson ninja-build python3 python3-gi \
+            gir1.2-gtk-4.0 gir1.2-adw-1 gettext libglib2.0-dev-bin \
+            desktop-file-utils appstream rpm
+
+      - name: Get version
+        id: version
+        run: |
+          VERSION=$(grep "^\s*version:" meson.build | grep -oE "'[^']+'" | tr -d "'")
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+
+      - name: Build with meson
+        run: |
+          meson setup builddir --prefix=/usr
+          DESTDIR="$PWD/installroot" ninja -C builddir install
+
+      - name: Assemble RPM package
+        run: |
+          VERSION=${{ steps.version.outputs.version }}
+          mkdir -p ~/rpmbuild/{SPECS,BUILD,RPMS,SRPMS,SOURCES}
+          cp -a installroot/. ~/rpmbuild/BUILD/installroot/
+          cp packaging/rpm/gearlever.spec ~/rpmbuild/SPECS/gearlever.spec
+          rpmbuild -bb \
+            --define "_version ${VERSION}" \
+            --define "_builddir $HOME/rpmbuild/BUILD" \
+            ~/rpmbuild/SPECS/gearlever.spec
+          find ~/rpmbuild/RPMS -name "*.rpm" -exec cp {} . \;
+
+      - name: Upload RPM artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: gearlever-rpm
+          path: "*.rpm"
